@@ -1,5 +1,7 @@
 # PipraPay Laravel SDK
 
+[![Tests](https://github.com/imran1oss/piprapay-laravel-sdk/actions/workflows/tests.yml/badge.svg)](https://github.com/imran1oss/piprapay-laravel-sdk/actions/workflows/tests.yml)
+
 A small, typed Laravel 11/12 client for the current self-hosted PipraPay API.
 
 This package creates redirect checkouts, verifies payments against PipraPay, and builds a direct checkout URL for a selected PipraPay gateway. It intentionally does not update deposits, wallets, promotions, or application databases.
