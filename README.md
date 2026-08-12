@@ -2,14 +2,14 @@
 
 [![Tests](https://github.com/imran1oss/piprapay-laravel-sdk/actions/workflows/tests.yml/badge.svg)](https://github.com/imran1oss/piprapay-laravel-sdk/actions/workflows/tests.yml)
 
-A small, typed Laravel 11/12/13 client for the current self-hosted PipraPay API.
+A small, typed Laravel 12/13 client for the current self-hosted PipraPay API.
 
 This package creates redirect checkouts, verifies payments against PipraPay, and builds a direct checkout URL for a selected PipraPay gateway. It intentionally does not update deposits, wallets, promotions, or application databases.
 
 ## Requirements
 
-- PHP 8.2+ for Laravel 11/12; PHP 8.3+ for Laravel 13
-- Laravel 11, 12, or 13
+- PHP 8.2+ for Laravel 12; PHP 8.3+ for Laravel 13
+- Laravel 12 or 13
 - A self-hosted PipraPay instance
 - A PipraPay API key with `Create Payment` and `Verify Payment` scopes
 
