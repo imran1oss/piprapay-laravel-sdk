@@ -14,6 +14,7 @@ use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
 use Imran1oss\PipraPay\Support\PaymentValue;
+use JsonException;
 
 class PipraPayClient implements PipraPayClientInterface
 {
@@ -89,10 +90,16 @@ class PipraPayClient implements PipraPayClientInterface
     private function post(string $endpoint, array $payload, bool $retryable = false): array
     {
         try {
+            $json = json_encode($payload, JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new PipraPayResponseException('PipraPay request payload cannot be encoded as JSON.', $payload, $exception);
+        }
+
+        try {
             $response = $this->http
                 ->baseUrl(rtrim($this->baseUrl, '/'))
                 ->acceptJson()
-                ->asJson()
+                ->withBody($json, 'application/json')
                 ->withoutRedirecting()
                 ->withHeaders([
                     'MHS-PIPRAPAY-API-KEY' => $this->apiKey,
@@ -110,7 +117,7 @@ class PipraPayClient implements PipraPayClientInterface
                     },
                     throw: false,
                 )
-                ->post($endpoint, $payload);
+                ->post($endpoint);
         } catch (ConnectionException $exception) {
             throw new PipraPayRequestException(
                 message: 'Unable to connect to PipraPay.',
@@ -126,8 +133,14 @@ class PipraPayClient implements PipraPayClientInterface
      */
     private function decodeResponse(Response $response): array
     {
-        $body = $response->json();
-        $body = is_array($body) ? $body : [];
+        $decodeException = null;
+        try {
+            $body = json_decode($response->body(), true, 512, JSON_BIGINT_AS_STRING | JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            $decodeException = $exception;
+            $body = [];
+        }
+        $body = is_array($body) && ! array_is_list($body) ? $body : [];
 
         if (! $response->successful() || isset($body['error'])) {
             $error = is_array($body['error'] ?? null) ? $body['error'] : [];
@@ -138,11 +151,12 @@ class PipraPayClient implements PipraPayClientInterface
                 statusCode: $response->status(),
                 errorCode: self::nullableString($error['code'] ?? null),
                 response: $body,
+                previous: $decodeException,
             );
         }
 
         if ($body === []) {
-            throw new PipraPayResponseException('PipraPay returned an empty or invalid JSON response.');
+            throw new PipraPayResponseException('PipraPay returned an empty or invalid JSON response.', previous: $decodeException);
         }
 
         return $body;
