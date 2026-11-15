@@ -16,6 +16,8 @@ use Imran1oss\PipraPay\Contracts\PipraPayClientInterface;
 use Imran1oss\PipraPay\Facades\PipraPay;
 use Imran1oss\PipraPay\PipraPayClient;
 use Imran1oss\PipraPay\PipraPayServiceProvider;
+use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -28,10 +30,14 @@ class PackageIntegrationTest extends TestCase
     private $previousFacadeApplication;
     private array $previousPublishes;
     private array $previousPublishGroups;
+    private string $previousTimezone;
+    private string $previousEncoding;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->previousTimezone = date_default_timezone_get();
+        $this->previousEncoding = mb_internal_encoding();
         $this->previousContainer = Container::getInstance();
         $this->previousFacadeApplication = Facade::getFacadeApplication();
         $this->previousPublishes = ServiceProvider::$publishes;
@@ -62,6 +68,8 @@ class PackageIntegrationTest extends TestCase
         ServiceProvider::$publishes = $this->previousPublishes;
         ServiceProvider::$publishGroups = $this->previousPublishGroups;
         (new Filesystem())->deleteDirectory($this->directory);
+        date_default_timezone_set($this->previousTimezone);
+        mb_internal_encoding($this->previousEncoding);
         parent::tearDown();
     }
 
@@ -118,6 +126,27 @@ class PackageIntegrationTest extends TestCase
         (new PipraPayServiceProvider($this->app))->register();
         $this->assertTrue($this->app->make(PipraPayClientInterface::class)->verifyPayment('349452200706799329851862826')->isCompleted());
         $http->assertSent(fn ($request): bool => $request->hasHeader('MHS-PIPRAPAY-API-KEY', 'cached-test-key'));
+    }
+
+    #[DataProvider('invalidConfigurationValues')]
+    public function test_malformed_configuration_is_not_string_cast_into_valid_values(string $field, mixed $value): void
+    {
+        $this->app['config']->set('piprapay.'.$field, $value);
+        (new PipraPayServiceProvider($this->app))->register();
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new \ErrorException($message, 0, $severity);
+        });
+        $this->expectException(PipraPayConfigurationException::class);
+        try {
+            $this->app->make(PipraPayClientInterface::class);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    public static function invalidConfigurationValues(): array
+    {
+        return [['currency', []], ['currency', true], ['currency', 123], ['base_url', []], ['api_key', []]];
     }
 
     private function fakeVerification(string $url): Factory

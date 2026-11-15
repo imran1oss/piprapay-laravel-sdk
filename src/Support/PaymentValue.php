@@ -40,7 +40,14 @@ final class PaymentValue
 
     private static function expandFloat(float $value): string
     {
-        $decimal = json_encode($value, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION);
+        // Seventeen significant digits suffice to round-trip a PHP double.
+        // H is locale independent and does not read precision/serialize_precision.
+        for ($precision = 1; $precision <= 17; $precision++) {
+            $decimal = sprintf('%.*H', $precision, $value);
+            if ((float) $decimal === $value) {
+                break;
+            }
+        }
 
         if (preg_match('/^(-?)([0-9]+)(?:\.([0-9]+))?[eE]([+-]?[0-9]+)$/D', $decimal, $parts) === 1) {
             $digits = $parts[2].($parts[3] ?? '');

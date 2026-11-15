@@ -16,6 +16,7 @@ use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
 use Imran1oss\PipraPay\Support\PaymentValue;
 use Imran1oss\PipraPay\Support\HttpUrl;
 use JsonException;
+use Throwable;
 
 class PipraPayClient implements PipraPayClientInterface
 {
@@ -92,7 +93,7 @@ class PipraPayClient implements PipraPayClientInterface
     {
         try {
             $json = json_encode($payload, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
+        } catch (Throwable $exception) {
             throw new PipraPayResponseException('PipraPay request payload cannot be encoded as JSON.', $payload, $exception);
         }
 

@@ -61,6 +61,31 @@ class JsonBoundaryTest extends TestCase
         }
     }
 
+    #[DataProvider('serializationFailures')]
+    public function test_serializer_callbacks_cannot_escape_the_sdk_boundary(\Throwable $failure): void
+    {
+        $value = new class($failure) implements \JsonSerializable
+        {
+            public function __construct(private \Throwable $failure) {}
+            public function jsonSerialize(): mixed { throw $this->failure; }
+        };
+        $http = new Factory();
+        $http->fake();
+        try {
+            $this->client($http)->createCheckout($this->payload(['value' => $value]));
+            $this->fail('Expected a typed encoding failure.');
+        } catch (PipraPayResponseException $exception) {
+            $this->assertSame($failure, $exception->getPrevious());
+        } finally {
+            $http->assertNothingSent();
+        }
+    }
+
+    public static function serializationFailures(): array
+    {
+        return [[new \RuntimeException('Serializer callback failed')], [new \Error('Serializer hook failed')]];
+    }
+
     public function test_metadata_is_encoded_once_and_sent_as_the_validated_json(): void
     {
         $value = new class implements \JsonSerializable

@@ -179,8 +179,8 @@ public function __construct(
 
 Invalid JSON payload values (including recursive metadata, invalid UTF-8, NAN,
 INF and resources) fail before a request is sent. JSON encoding/decoding failures
-produce typed SDK exceptions and retain the underlying `JsonException` as the
-previous exception. Decoding is independent of Laravel's global JSON flags and
+produce typed SDK exceptions and retain the original cause as the previous
+exception, including failures thrown by JSON serialization callbacks. Decoding is independent of Laravel's global JSON flags and
 preserves large integer payment IDs as strings. Error HTTP responses retain
 their status even when their body is not valid JSON.
 

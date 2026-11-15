@@ -99,6 +99,23 @@ class PaymentValuesTest extends TestCase
         $this->assertTrue($payment->isPending());
     }
 
+    #[DataProvider('serializerSettings')]
+    public function test_float_amounts_do_not_depend_on_serializer_settings(string $precision, float $value, string $expected): void
+    {
+        $previous = ini_set('serialize_precision', $precision);
+        try {
+            $this->test_checkout_emits_plain_decimal_amounts($value, $expected);
+            $this->test_verified_amounts_are_decimal_strings_without_precision_loss($value, $expected);
+        } finally {
+            ini_set('serialize_precision', $previous);
+        }
+    }
+
+    public static function serializerSettings(): array
+    {
+        return [['2', 123.45, '123.45'], ['17', 0.1, '0.1']];
+    }
+
     private function payload(mixed $amount, string $currency = 'BDT'): array
     {
         return ['full_name' => 'Demo User', 'email_address' => 'demo@example.com', 'mobile_number' => '01700000000', 'amount' => $amount, 'currency' => $currency];
