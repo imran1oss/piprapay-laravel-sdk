@@ -14,6 +14,7 @@ use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
 use Imran1oss\PipraPay\Support\PaymentValue;
+use Imran1oss\PipraPay\Support\HttpUrl;
 use JsonException;
 
 class PipraPayClient implements PipraPayClientInterface
@@ -191,7 +192,7 @@ class PipraPayClient implements PipraPayClientInterface
 
             $url = trim((string) ($payload[$field] ?? ''));
 
-            if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL) === false) {
+            if ($url !== '' && ! HttpUrl::isValid($url)) {
                 throw new PipraPayResponseException("The {$field} field must be a valid URL.", $payload);
             }
         }
@@ -233,8 +234,10 @@ class PipraPayClient implements PipraPayClientInterface
 
     private function validateConfiguration(): void
     {
-        if (filter_var($this->baseUrl, FILTER_VALIDATE_URL) === false) {
-            throw new PipraPayConfigurationException('PIPRAPAY_BASE_URL must be a valid URL.');
+        if (! HttpUrl::isValid($this->baseUrl)
+            || parse_url($this->baseUrl, PHP_URL_QUERY) !== null
+            || parse_url($this->baseUrl, PHP_URL_FRAGMENT) !== null) {
+            throw new PipraPayConfigurationException('PIPRAPAY_BASE_URL must be an HTTP(S) URL without a query or fragment.');
         }
 
         if (trim($this->apiKey) === '') {

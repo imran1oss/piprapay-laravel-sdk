@@ -3,6 +3,7 @@
 namespace Imran1oss\PipraPay\Data;
 
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
+use Imran1oss\PipraPay\Support\HttpUrl;
 
 final readonly class CheckoutResponse
 {
@@ -14,6 +15,13 @@ final readonly class CheckoutResponse
         public string $checkoutUrl,
         public array $raw = [],
     ) {
+        if ($paymentId === '' || preg_match('/[\x00-\x20\x7f]/', $paymentId) === 1) {
+            throw new PipraPayResponseException('PipraPay checkout response has an invalid pp_id.', $raw);
+        }
+
+        if (! HttpUrl::isValid($checkoutUrl)) {
+            throw new PipraPayResponseException('PipraPay returned an invalid checkout URL.', $raw);
+        }
     }
 
     /**
@@ -26,23 +34,8 @@ final readonly class CheckoutResponse
             throw new PipraPayResponseException('PipraPay checkout response has an invalid pp_id or pp_url.', $payload);
         }
 
-        $paymentId = trim((string) ($payload['pp_id'] ?? ''));
+        $paymentId = (string) $payload['pp_id'];
         $checkoutUrl = trim((string) ($payload['pp_url'] ?? ''));
-
-        if ($paymentId === '' || $checkoutUrl === '') {
-            throw new PipraPayResponseException(
-                'PipraPay checkout response is missing pp_id or pp_url.',
-                $payload,
-            );
-        }
-
-        if (filter_var($checkoutUrl, FILTER_VALIDATE_URL) === false
-            || ! in_array(strtolower((string) parse_url($checkoutUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
-            throw new PipraPayResponseException(
-                'PipraPay returned an invalid checkout URL.',
-                $payload,
-            );
-        }
 
         return new self($paymentId, $checkoutUrl, $payload);
     }
