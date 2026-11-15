@@ -27,6 +27,11 @@ final readonly class PaymentResponse
      */
     public static function fromArray(array $payload): self
     {
+        if ((! is_string($payload['pp_id'] ?? null) && ! is_int($payload['pp_id'] ?? null))
+            || ! is_string($payload['status'] ?? null)) {
+            throw new PipraPayResponseException('PipraPay verification response has an invalid pp_id or status.', $payload);
+        }
+
         $paymentId = trim((string) ($payload['pp_id'] ?? ''));
         $status = strtolower(trim((string) ($payload['status'] ?? '')));
 
@@ -37,14 +42,34 @@ final readonly class PaymentResponse
             );
         }
 
+        $amount = $payload['amount'] ?? null;
+
+        if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount < 0
+            || ($status === 'completed' && (float) $amount <= 0)) {
+            throw new PipraPayResponseException('PipraPay verification response has an invalid amount.', $payload);
+        }
+
+        if (! is_string($payload['currency'] ?? null) || trim($payload['currency']) === '') {
+            throw new PipraPayResponseException('PipraPay verification response is missing a valid currency.', $payload);
+        }
+
         $metadata = $payload['metadata'] ?? [];
-        $metadata = is_array($metadata) ? $metadata : [];
+
+        if (! is_array($metadata)) {
+            throw new PipraPayResponseException('PipraPay verification response has invalid metadata.', $payload);
+        }
+
+        foreach (['gateway', 'transaction_id'] as $field) {
+            if (isset($payload[$field]) && ! is_string($payload[$field]) && ! is_int($payload[$field])) {
+                throw new PipraPayResponseException("PipraPay verification response has an invalid {$field}.", $payload);
+            }
+        }
 
         return new self(
             paymentId: $paymentId,
             status: $status,
-            amount: (string) ($payload['amount'] ?? '0'),
-            currency: strtoupper((string) ($payload['currency'] ?? '')),
+            amount: (string) $amount,
+            currency: strtoupper(trim($payload['currency'])),
             gateway: self::nullableString($payload['gateway'] ?? null),
             transactionId: self::nullableString($payload['transaction_id'] ?? null),
             metadata: $metadata,

@@ -54,11 +54,21 @@ class PipraPayClient implements PipraPayClientInterface
 
         $response = $this->post($this->endpoint('verify'), ['pp_id' => $paymentId], retryable: true);
 
-        return PaymentResponse::fromArray($response);
+        $payment = PaymentResponse::fromArray($response);
+
+        if (! hash_equals($paymentId, $payment->paymentId)) {
+            throw new PipraPayResponseException('PipraPay returned a different payment ID.', $response);
+        }
+
+        return $payment;
     }
 
     public function verifyWebhook(array $payload): PaymentResponse
     {
+        if (! is_string($payload['pp_id'] ?? null) && ! is_int($payload['pp_id'] ?? null)) {
+            throw new PipraPayResponseException('The PipraPay webhook payload must contain a valid pp_id.', $payload);
+        }
+
         $paymentId = trim((string) ($payload['pp_id'] ?? ''));
 
         if ($paymentId === '') {
@@ -144,7 +154,7 @@ class PipraPayClient implements PipraPayClientInterface
     private function normalizeCheckoutPayload(array $payload): array
     {
         foreach (['full_name', 'email_address', 'mobile_number'] as $field) {
-            if (trim((string) ($payload[$field] ?? '')) === '') {
+            if (! is_string($payload[$field] ?? null) || trim($payload[$field]) === '') {
                 throw new PipraPayResponseException("The {$field} field is required.", $payload);
             }
         }
@@ -155,11 +165,15 @@ class PipraPayClient implements PipraPayClientInterface
 
         $amount = $payload['amount'] ?? null;
 
-        if (! is_numeric($amount) || (float) $amount <= 0) {
-            throw new PipraPayResponseException('The amount must be a positive number.', $payload);
+        if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount <= 0) {
+            throw new PipraPayResponseException('The amount must be a finite positive number.', $payload);
         }
 
         foreach (['return_url', 'webhook_url'] as $field) {
+            if (isset($payload[$field]) && ! is_string($payload[$field])) {
+                throw new PipraPayResponseException("The {$field} field must be a valid URL.", $payload);
+            }
+
             $url = trim((string) ($payload[$field] ?? ''));
 
             if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL) === false) {
@@ -173,7 +187,13 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The metadata field must be an array.', $payload);
         }
 
-        $currency = strtoupper(trim((string) ($payload['currency'] ?? $this->currency)));
+        $currency = $payload['currency'] ?? $this->currency;
+
+        if (! is_string($currency)) {
+            throw new PipraPayResponseException('The currency field must be a string.', $payload);
+        }
+
+        $currency = strtoupper(trim($currency));
 
         if ($currency === '') {
             throw new PipraPayResponseException('The currency field cannot be empty.', $payload);

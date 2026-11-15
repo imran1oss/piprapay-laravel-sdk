@@ -8,6 +8,7 @@ use GuzzleHttp\Psr7\Response;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
+use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
 use Imran1oss\PipraPay\PipraPayClient;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -151,6 +152,118 @@ class PipraPaySafetyTest extends TestCase
     public static function redirectStatuses(): array
     {
         return [[301], [302], [303], [307], [308]];
+    }
+
+    public function test_verification_rejects_a_different_payment_reference(): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['pp_id'] = 'PP-OTHER';
+        $this->http->fake(['*' => Factory::response($payload)]);
+
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
+    public function test_webhook_verification_rejects_a_different_payment_reference(): void
+    {
+        $this->http->fake(['*' => Factory::response($this->paymentPayload())]);
+
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyWebhook(['pp_id' => 'PP-OTHER', 'status' => 'completed']);
+    }
+
+    #[DataProvider('invalidAmounts')]
+    public function test_checkout_rejects_non_finite_amounts_before_sending(mixed $amount): void
+    {
+        $this->http->fake();
+        $payload = $this->checkoutPayload();
+        $payload['amount'] = $amount;
+        $this->expectException(PipraPayResponseException::class);
+
+        try {
+            $this->client()->createCheckout($payload);
+        } finally {
+            $this->http->assertNothingSent();
+        }
+    }
+
+    public static function invalidAmounts(): array
+    {
+        return [[INF], [NAN], ['1e999'], [-INF], ['0'], ['-1'], [[]], [true]];
+    }
+
+    #[DataProvider('malformedPayments')]
+    public function test_verification_rejects_malformed_payment_fields(array $changes): void
+    {
+        $this->http->fake(['*' => Factory::response(array_replace($this->paymentPayload(), $changes))]);
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
+    public static function malformedPayments(): array
+    {
+        return [
+            [['amount' => null]], [['currency' => null]],
+            [['amount' => 'not-money']], [['amount' => '1e999']],
+            [['amount' => '-1']], [['amount' => '0']],
+            [['amount' => []]], [['currency' => []]], [['currency' => ' ']],
+            [['status' => []]], [['pp_id' => []]], [['metadata' => 'invalid']],
+            [['gateway' => []]], [['transaction_id' => []]],
+        ];
+    }
+
+    public function test_verification_requires_amount_and_currency(): void
+    {
+        $this->http->fake(['*' => Factory::response(['pp_id' => 'PP-123', 'status' => 'completed'])]);
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
+    public function test_verification_preserves_decimal_strings_and_normalizes_currency(): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['amount'] = '500.123456789012345678';
+        $payload['currency'] = ' bdt ';
+        $this->http->fake(['*' => Factory::response($payload)]);
+
+        $payment = $this->client()->verifyPayment(' PP-123 ');
+        $this->assertSame('500.123456789012345678', $payment->amount);
+        $this->assertSame('BDT', $payment->currency);
+    }
+
+    #[DataProvider('malformedCheckoutFields')]
+    public function test_checkout_rejects_malformed_fields_without_warnings(string $field, mixed $value): void
+    {
+        $this->http->fake();
+        $payload = $this->checkoutPayload();
+        $payload[$field] = $value;
+        $this->expectException(PipraPayResponseException::class);
+
+        try {
+            $this->client()->createCheckout($payload);
+        } finally {
+            $this->http->assertNothingSent();
+        }
+    }
+
+    public static function malformedCheckoutFields(): array
+    {
+        return [
+            ['full_name', []], ['email_address', []], ['mobile_number', []],
+            ['currency', []], ['return_url', []], ['webhook_url', []],
+        ];
+    }
+
+    public function test_webhook_rejects_a_non_scalar_reference_without_http(): void
+    {
+        $this->http->fake();
+        $this->expectException(PipraPayResponseException::class);
+
+        try {
+            $this->client()->verifyWebhook(['pp_id' => []]);
+        } finally {
+            $this->http->assertNothingSent();
+        }
     }
 
     private function client(): PipraPayClient
