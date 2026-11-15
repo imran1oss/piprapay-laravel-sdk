@@ -44,6 +44,16 @@ PIPRAPAY_ATTEMPTS=3
 PIPRAPAY_RETRY_SLEEP_MS=200
 ```
 
+`PIPRAPAY_ATTEMPTS` and `PIPRAPAY_RETRY_SLEEP_MS` apply to payment verification
+(including webhook verification). Checkout creation is sent exactly once, even
+on a timeout or server error, because remote idempotency support has not been
+established. An unsuccessful response may still mean the remote checkout was
+created: reconcile it before manually creating another checkout.
+
+API requests do not follow redirects, so an API key cannot be forwarded to a
+redirect destination. Configure the final PipraPay API base URL; use HTTPS in
+production. A redirect is reported as a `PipraPayRequestException`.
+
 PipraPay requires the domains used by `return_url` and `webhook_url` to be active in its Domains settings.
 
 ## Create a direct gateway checkout
@@ -83,6 +93,9 @@ https://pay.example.com/payment/PP_ID?gateway=EXTERNAL_GATEWAY_CODE
 
 It skips PipraPay's general gateway list and opens only the selected gateway.
 
+Existing `gateway` query parameters are replaced. Other query parameters and any
+URL fragment are preserved, with the gateway query placed before the fragment.
+
 ## Verify a payment
 
 Never credit a wallet from browser query parameters alone.
@@ -94,6 +107,12 @@ if ($payment->isCompleted()) {
     // Lock the deposit row and credit the wallet exactly once.
 }
 ```
+
+Verification rejects responses with a different payment ID or invalid amount,
+currency, or field types. Amounts must be finite; completed payments must have a
+positive amount. Decimal amount strings are preserved. Applications must still
+match the verified amount, currency, and metadata to their deposit and retain
+their transaction and row-lock safeguards.
 
 Available status helpers:
 

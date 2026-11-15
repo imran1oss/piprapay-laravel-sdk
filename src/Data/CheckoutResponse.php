@@ -21,6 +21,11 @@ final readonly class CheckoutResponse
      */
     public static function fromArray(array $payload): self
     {
+        if ((! is_string($payload['pp_id'] ?? null) && ! is_int($payload['pp_id'] ?? null))
+            || ! is_string($payload['pp_url'] ?? null)) {
+            throw new PipraPayResponseException('PipraPay checkout response has an invalid pp_id or pp_url.', $payload);
+        }
+
         $paymentId = trim((string) ($payload['pp_id'] ?? ''));
         $checkoutUrl = trim((string) ($payload['pp_url'] ?? ''));
 
@@ -31,7 +36,8 @@ final readonly class CheckoutResponse
             );
         }
 
-        if (filter_var($checkoutUrl, FILTER_VALIDATE_URL) === false) {
+        if (filter_var($checkoutUrl, FILTER_VALIDATE_URL) === false
+            || ! in_array(strtolower((string) parse_url($checkoutUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
             throw new PipraPayResponseException(
                 'PipraPay returned an invalid checkout URL.',
                 $payload,
@@ -52,14 +58,23 @@ final readonly class CheckoutResponse
             );
         }
 
-        $separator = str_contains($this->checkoutUrl, '?') ? '&' : '?';
+        $fragmentParts = explode('#', $this->checkoutUrl, 2);
+        $urlParts = explode('?', $fragmentParts[0], 2);
+        $query = array_filter(
+            explode('&', $urlParts[1] ?? ''),
+            static fn (string $parameter): bool => $parameter !== ''
+                && urldecode(explode('=', $parameter, 2)[0]) !== 'gateway',
+        );
 
-        return $this->checkoutUrl.$separator.http_build_query(
+        $query[] = http_build_query(
             ['gateway' => $externalGatewayCode],
             '',
             '&',
             PHP_QUERY_RFC3986,
         );
+
+        return $urlParts[0].'?'.implode('&', $query)
+            .(isset($fragmentParts[1]) ? '#'.$fragmentParts[1] : '');
     }
 
     /**
