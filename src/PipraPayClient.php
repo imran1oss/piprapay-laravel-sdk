@@ -52,7 +52,7 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The PipraPay payment ID cannot be empty.');
         }
 
-        $response = $this->post($this->endpoint('verify'), ['pp_id' => $paymentId]);
+        $response = $this->post($this->endpoint('verify'), ['pp_id' => $paymentId], retryable: true);
 
         return PaymentResponse::fromArray($response);
     }
@@ -75,13 +75,14 @@ class PipraPayClient implements PipraPayClientInterface
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function post(string $endpoint, array $payload): array
+    private function post(string $endpoint, array $payload, bool $retryable = false): array
     {
         try {
             $response = $this->http
                 ->baseUrl(rtrim($this->baseUrl, '/'))
                 ->acceptJson()
                 ->asJson()
+                ->withoutRedirecting()
                 ->withHeaders([
                     'MHS-PIPRAPAY-API-KEY' => $this->apiKey,
                     'User-Agent' => 'piprapay-laravel-sdk/1.0',
@@ -89,9 +90,9 @@ class PipraPayClient implements PipraPayClientInterface
                 ->connectTimeout(max(1, $this->connectTimeout))
                 ->timeout(max(1, $this->timeout))
                 ->retry(
-                    max(1, $this->attempts),
+                    $retryable ? max(1, $this->attempts) : 1,
                     max(0, $this->retrySleepMs),
-                    static function (Exception $exception): bool {
+                    static function (?Exception $exception): bool {
                         return $exception instanceof ConnectionException
                             || ($exception instanceof LaravelRequestException
                                 && $exception->response->serverError());
