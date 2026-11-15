@@ -13,6 +13,10 @@ use Imran1oss\PipraPay\Data\PaymentResponse;
 use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
+use Imran1oss\PipraPay\Support\PaymentValue;
+use Imran1oss\PipraPay\Support\HttpUrl;
+use JsonException;
+use Throwable;
 
 class PipraPayClient implements PipraPayClientInterface
 {
@@ -52,13 +56,23 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The PipraPay payment ID cannot be empty.');
         }
 
-        $response = $this->post($this->endpoint('verify'), ['pp_id' => $paymentId]);
+        $response = $this->post($this->endpoint('verify'), ['pp_id' => $paymentId], retryable: true);
 
-        return PaymentResponse::fromArray($response);
+        $payment = PaymentResponse::fromArray($response);
+
+        if (! hash_equals($paymentId, (string) $response['pp_id'])) {
+            throw new PipraPayResponseException('PipraPay returned a different payment ID.', $response);
+        }
+
+        return $payment;
     }
 
     public function verifyWebhook(array $payload): PaymentResponse
     {
+        if (! is_string($payload['pp_id'] ?? null) && ! is_int($payload['pp_id'] ?? null)) {
+            throw new PipraPayResponseException('The PipraPay webhook payload must contain a valid pp_id.', $payload);
+        }
+
         $paymentId = trim((string) ($payload['pp_id'] ?? ''));
 
         if ($paymentId === '') {
@@ -75,13 +89,20 @@ class PipraPayClient implements PipraPayClientInterface
      * @param array<string, mixed> $payload
      * @return array<string, mixed>
      */
-    private function post(string $endpoint, array $payload): array
+    private function post(string $endpoint, array $payload, bool $retryable = false): array
     {
+        try {
+            $json = json_encode($payload, JSON_THROW_ON_ERROR);
+        } catch (Throwable $exception) {
+            throw new PipraPayResponseException('PipraPay request payload cannot be encoded as JSON.', $payload, $exception);
+        }
+
         try {
             $response = $this->http
                 ->baseUrl(rtrim($this->baseUrl, '/'))
                 ->acceptJson()
-                ->asJson()
+                ->withBody($json, 'application/json')
+                ->withoutRedirecting()
                 ->withHeaders([
                     'MHS-PIPRAPAY-API-KEY' => $this->apiKey,
                     'User-Agent' => 'piprapay-laravel-sdk/1.0',
@@ -89,16 +110,16 @@ class PipraPayClient implements PipraPayClientInterface
                 ->connectTimeout(max(1, $this->connectTimeout))
                 ->timeout(max(1, $this->timeout))
                 ->retry(
-                    max(1, $this->attempts),
+                    $retryable ? max(1, $this->attempts) : 1,
                     max(0, $this->retrySleepMs),
-                    static function (Exception $exception): bool {
+                    static function (?Exception $exception): bool {
                         return $exception instanceof ConnectionException
                             || ($exception instanceof LaravelRequestException
                                 && $exception->response->serverError());
                     },
                     throw: false,
                 )
-                ->post($endpoint, $payload);
+                ->post($endpoint);
         } catch (ConnectionException $exception) {
             throw new PipraPayRequestException(
                 message: 'Unable to connect to PipraPay.',
@@ -114,23 +135,30 @@ class PipraPayClient implements PipraPayClientInterface
      */
     private function decodeResponse(Response $response): array
     {
-        $body = $response->json();
-        $body = is_array($body) ? $body : [];
+        $decodeException = null;
+        try {
+            $body = json_decode($response->body(), true, 512, JSON_BIGINT_AS_STRING | JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            $decodeException = $exception;
+            $body = [];
+        }
+        $body = is_array($body) && ! array_is_list($body) ? $body : [];
 
         if (! $response->successful() || isset($body['error'])) {
             $error = is_array($body['error'] ?? null) ? $body['error'] : [];
-            $message = trim((string) ($error['message'] ?? ''));
+            $message = is_string($error['message'] ?? null) ? trim($error['message']) : '';
 
             throw new PipraPayRequestException(
                 message: $message !== '' ? $message : 'PipraPay rejected the request.',
                 statusCode: $response->status(),
                 errorCode: self::nullableString($error['code'] ?? null),
                 response: $body,
+                previous: $decodeException,
             );
         }
 
         if ($body === []) {
-            throw new PipraPayResponseException('PipraPay returned an empty or invalid JSON response.');
+            throw new PipraPayResponseException('PipraPay returned an empty or invalid JSON response.', previous: $decodeException);
         }
 
         return $body;
@@ -143,7 +171,7 @@ class PipraPayClient implements PipraPayClientInterface
     private function normalizeCheckoutPayload(array $payload): array
     {
         foreach (['full_name', 'email_address', 'mobile_number'] as $field) {
-            if (trim((string) ($payload[$field] ?? '')) === '') {
+            if (! is_string($payload[$field] ?? null) || trim($payload[$field]) === '') {
                 throw new PipraPayResponseException("The {$field} field is required.", $payload);
             }
         }
@@ -152,16 +180,20 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The email_address field must be valid.', $payload);
         }
 
-        $amount = $payload['amount'] ?? null;
+        $amount = PaymentValue::amount($payload['amount'] ?? null);
 
-        if (! is_numeric($amount) || (float) $amount <= 0) {
-            throw new PipraPayResponseException('The amount must be a positive number.', $payload);
+        if ($amount === null) {
+            throw new PipraPayResponseException('The amount must be a positive plain decimal number.', $payload);
         }
 
         foreach (['return_url', 'webhook_url'] as $field) {
+            if (isset($payload[$field]) && ! is_string($payload[$field])) {
+                throw new PipraPayResponseException("The {$field} field must be a valid URL.", $payload);
+            }
+
             $url = trim((string) ($payload[$field] ?? ''));
 
-            if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL) === false) {
+            if ($url !== '' && ! HttpUrl::isValid($url)) {
                 throw new PipraPayResponseException("The {$field} field must be a valid URL.", $payload);
             }
         }
@@ -172,10 +204,10 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The metadata field must be an array.', $payload);
         }
 
-        $currency = strtoupper(trim((string) ($payload['currency'] ?? $this->currency)));
+        $currency = PaymentValue::currency($payload['currency'] ?? $this->currency);
 
-        if ($currency === '') {
-            throw new PipraPayResponseException('The currency field cannot be empty.', $payload);
+        if ($currency === null) {
+            throw new PipraPayResponseException('The currency field must contain 3–10 letters or digits.', $payload);
         }
 
         return [
@@ -203,22 +235,24 @@ class PipraPayClient implements PipraPayClientInterface
 
     private function validateConfiguration(): void
     {
-        if (filter_var($this->baseUrl, FILTER_VALIDATE_URL) === false) {
-            throw new PipraPayConfigurationException('PIPRAPAY_BASE_URL must be a valid URL.');
+        if (! HttpUrl::isValid($this->baseUrl)
+            || parse_url($this->baseUrl, PHP_URL_QUERY) !== null
+            || parse_url($this->baseUrl, PHP_URL_FRAGMENT) !== null) {
+            throw new PipraPayConfigurationException('PIPRAPAY_BASE_URL must be an HTTP(S) URL without a query or fragment.');
         }
 
         if (trim($this->apiKey) === '') {
             throw new PipraPayConfigurationException('PIPRAPAY_API_KEY is not configured.');
         }
 
-        if (trim($this->currency) === '') {
-            throw new PipraPayConfigurationException('PIPRAPAY_CURRENCY cannot be empty.');
+        if (PaymentValue::currency($this->currency) === null) {
+            throw new PipraPayConfigurationException('PIPRAPAY_CURRENCY must contain 3–10 letters or digits.');
         }
     }
 
     private static function nullableString(mixed $value): ?string
     {
-        if ($value === null) {
+        if (! is_string($value) && ! is_int($value)) {
             return null;
         }
 

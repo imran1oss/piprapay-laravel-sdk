@@ -1,0 +1,23 @@
+{
+  "pp_id": "349452200706799329851862826",
+  "full_name": "SDK Fixture User",
+  "email_address": "fixture@example.invalid",
+  "mobile_number": "01700000000",
+  "gateway": "bKash",
+  "amount": "500.00",
+  "fee": "5.00",
+  "discount_amount": "0.00",
+  "total": "505.00",
+  "local_net_amount": "505.00",
+  "currency": "BDT",
+  "local_currency": "BDT",
+  "metadata": {
+    "deposit_id": "42",
+    "trx": "SDK-FIXTURE-42",
+    "user_id": "7"
+  },
+  "sender": "01700000000",
+  "transaction_id": "SDK-TRX-42",
+  "status": "canceled",
+  "date": "Nov 15, 2026 04:00 PM"
+}

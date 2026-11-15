@@ -5,6 +5,7 @@ namespace Imran1oss\PipraPay;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Support\ServiceProvider;
 use Imran1oss\PipraPay\Contracts\PipraPayClientInterface;
+use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
 
 class PipraPayServiceProvider extends ServiceProvider
 {
@@ -15,6 +16,12 @@ class PipraPayServiceProvider extends ServiceProvider
         $this->app->singleton(PipraPayClientInterface::class, function ($app): PipraPayClient {
             /** @var array<string, mixed> $config */
             $config = $app['config']->get('piprapay', []);
+
+            foreach (['base_url', 'api_key', 'currency'] as $field) {
+                if (isset($config[$field]) && ! is_string($config[$field])) {
+                    throw new PipraPayConfigurationException("The PipraPay {$field} configuration must be a string.");
+                }
+            }
 
             return new PipraPayClient(
                 http: $app->make(Factory::class),
