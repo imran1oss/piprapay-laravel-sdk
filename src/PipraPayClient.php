@@ -13,6 +13,7 @@ use Imran1oss\PipraPay\Data\PaymentResponse;
 use Imran1oss\PipraPay\Exceptions\PipraPayConfigurationException;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
+use Imran1oss\PipraPay\Support\PaymentValue;
 
 class PipraPayClient implements PipraPayClientInterface
 {
@@ -163,10 +164,10 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The email_address field must be valid.', $payload);
         }
 
-        $amount = $payload['amount'] ?? null;
+        $amount = PaymentValue::amount($payload['amount'] ?? null);
 
-        if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount <= 0) {
-            throw new PipraPayResponseException('The amount must be a finite positive number.', $payload);
+        if ($amount === null) {
+            throw new PipraPayResponseException('The amount must be a positive plain decimal number.', $payload);
         }
 
         foreach (['return_url', 'webhook_url'] as $field) {
@@ -187,16 +188,10 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayResponseException('The metadata field must be an array.', $payload);
         }
 
-        $currency = $payload['currency'] ?? $this->currency;
+        $currency = PaymentValue::currency($payload['currency'] ?? $this->currency);
 
-        if (! is_string($currency)) {
-            throw new PipraPayResponseException('The currency field must be a string.', $payload);
-        }
-
-        $currency = strtoupper(trim($currency));
-
-        if ($currency === '') {
-            throw new PipraPayResponseException('The currency field cannot be empty.', $payload);
+        if ($currency === null) {
+            throw new PipraPayResponseException('The currency field must contain 3–10 letters or digits.', $payload);
         }
 
         return [
@@ -232,8 +227,8 @@ class PipraPayClient implements PipraPayClientInterface
             throw new PipraPayConfigurationException('PIPRAPAY_API_KEY is not configured.');
         }
 
-        if (trim($this->currency) === '') {
-            throw new PipraPayConfigurationException('PIPRAPAY_CURRENCY cannot be empty.');
+        if (PaymentValue::currency($this->currency) === null) {
+            throw new PipraPayConfigurationException('PIPRAPAY_CURRENCY must contain 3–10 letters or digits.');
         }
     }
 

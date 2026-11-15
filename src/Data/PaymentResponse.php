@@ -3,6 +3,7 @@
 namespace Imran1oss\PipraPay\Data;
 
 use Imran1oss\PipraPay\Exceptions\PipraPayResponseException;
+use Imran1oss\PipraPay\Support\PaymentValue;
 
 final readonly class PaymentResponse
 {
@@ -42,16 +43,15 @@ final readonly class PaymentResponse
             );
         }
 
-        $amount = $payload['amount'] ?? null;
+        $amount = PaymentValue::amount($payload['amount'] ?? null, allowZero: $status !== 'completed');
 
-        if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount < 0
-            || ((float) $amount == 0.0 && preg_match('/^\s*-[0-9.]*[1-9]/', (string) $amount) === 1)
-            || ($status === 'completed' && (float) $amount <= 0)) {
+        if ($amount === null) {
             throw new PipraPayResponseException('PipraPay verification response has an invalid amount.', $payload);
         }
 
-        if (! is_string($payload['currency'] ?? null)
-            || preg_match('/^[A-Z0-9]{3,10}$/D', strtoupper(trim($payload['currency'], " \t\r\n"))) !== 1) {
+        $currency = PaymentValue::currency($payload['currency'] ?? null);
+
+        if ($currency === null) {
             throw new PipraPayResponseException('PipraPay verification response is missing a valid currency.', $payload);
         }
 
@@ -71,7 +71,7 @@ final readonly class PaymentResponse
             paymentId: $paymentId,
             status: $status,
             amount: (string) $amount,
-            currency: strtoupper(trim($payload['currency'], " \t\r\n")),
+            currency: $currency,
             gateway: self::nullableString($payload['gateway'] ?? null),
             transactionId: self::nullableString($payload['transaction_id'] ?? null),
             metadata: $metadata,
