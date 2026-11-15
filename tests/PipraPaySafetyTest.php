@@ -266,6 +266,88 @@ class PipraPaySafetyTest extends TestCase
         }
     }
 
+    #[DataProvider('alteredReferences')]
+    public function test_returned_payment_reference_is_compared_without_normalization(string $reference): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['pp_id'] = $reference;
+        $this->http->fake(['*' => Factory::response($payload)]);
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
+    public static function alteredReferences(): array
+    {
+        return [["PP-123\0"], [' PP-123'], ['PP-123 ']];
+    }
+
+    #[DataProvider('malformedApiErrors')]
+    public function test_malformed_api_errors_still_produce_typed_request_exceptions(int $status, array $error): void
+    {
+        $this->http->fake(['*' => Factory::response(['error' => $error], $status)]);
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new \ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $this->client()->verifyPayment('PP-123');
+            $this->fail('Expected a typed request exception.');
+        } catch (PipraPayRequestException $exception) {
+            $this->assertSame($status, $exception->statusCode);
+            $this->assertNull($exception->errorCode);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    public static function malformedApiErrors(): array
+    {
+        return [
+            [307, ['message' => ['invalid']]], [307, ['code' => ['invalid']]],
+            [400, ['message' => ['invalid']]], [400, ['code' => ['invalid']]],
+            [503, ['message' => ['invalid']]], [503, ['code' => ['invalid']]],
+        ];
+    }
+
+    #[DataProvider('validCurrencyCodes')]
+    public function test_custom_currency_codes_remain_supported(string $currency): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['currency'] = $currency;
+        $this->http->fake(['*' => Factory::response($payload)]);
+        $this->assertSame($currency, $this->client()->verifyPayment('PP-123')->currency);
+    }
+
+    public static function validCurrencyCodes(): array
+    {
+        return [['BDT'], ['USDT'], ['USD1'], ['ABCDEFGHIJ']];
+    }
+
+    #[DataProvider('invalidCurrencyCodes')]
+    public function test_malformed_currency_codes_are_rejected(string $currency): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['currency'] = $currency;
+        $this->http->fake(['*' => Factory::response($payload)]);
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
+    public static function invalidCurrencyCodes(): array
+    {
+        return [['123!'], ['BN_D'], ['US'], ['ABCDEFGHIJK'], ["BDT\0"]];
+    }
+
+    public function test_pending_negative_amount_cannot_underflow_to_zero(): void
+    {
+        $payload = $this->paymentPayload();
+        $payload['status'] = 'pending';
+        $payload['amount'] = '-1e-1000';
+        $this->http->fake(['*' => Factory::response($payload)]);
+        $this->expectException(PipraPayResponseException::class);
+        $this->client()->verifyPayment('PP-123');
+    }
+
     private function client(): PipraPayClient
     {
         return new PipraPayClient(

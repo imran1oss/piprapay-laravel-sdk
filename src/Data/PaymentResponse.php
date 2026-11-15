@@ -45,11 +45,13 @@ final readonly class PaymentResponse
         $amount = $payload['amount'] ?? null;
 
         if (! is_numeric($amount) || ! is_finite((float) $amount) || (float) $amount < 0
+            || ((float) $amount == 0.0 && preg_match('/^\s*-[0-9.]*[1-9]/', (string) $amount) === 1)
             || ($status === 'completed' && (float) $amount <= 0)) {
             throw new PipraPayResponseException('PipraPay verification response has an invalid amount.', $payload);
         }
 
-        if (! is_string($payload['currency'] ?? null) || trim($payload['currency']) === '') {
+        if (! is_string($payload['currency'] ?? null)
+            || preg_match('/^[A-Z0-9]{3,10}$/D', strtoupper(trim($payload['currency'], " \t\r\n"))) !== 1) {
             throw new PipraPayResponseException('PipraPay verification response is missing a valid currency.', $payload);
         }
 
@@ -69,7 +71,7 @@ final readonly class PaymentResponse
             paymentId: $paymentId,
             status: $status,
             amount: (string) $amount,
-            currency: strtoupper(trim($payload['currency'])),
+            currency: strtoupper(trim($payload['currency'], " \t\r\n")),
             gateway: self::nullableString($payload['gateway'] ?? null),
             transactionId: self::nullableString($payload['transaction_id'] ?? null),
             metadata: $metadata,

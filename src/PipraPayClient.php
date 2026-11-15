@@ -56,7 +56,7 @@ class PipraPayClient implements PipraPayClientInterface
 
         $payment = PaymentResponse::fromArray($response);
 
-        if (! hash_equals($paymentId, $payment->paymentId)) {
+        if (! hash_equals($paymentId, (string) $response['pp_id'])) {
             throw new PipraPayResponseException('PipraPay returned a different payment ID.', $response);
         }
 
@@ -130,7 +130,7 @@ class PipraPayClient implements PipraPayClientInterface
 
         if (! $response->successful() || isset($body['error'])) {
             $error = is_array($body['error'] ?? null) ? $body['error'] : [];
-            $message = trim((string) ($error['message'] ?? ''));
+            $message = is_string($error['message'] ?? null) ? trim($error['message']) : '';
 
             throw new PipraPayRequestException(
                 message: $message !== '' ? $message : 'PipraPay rejected the request.',
@@ -239,7 +239,7 @@ class PipraPayClient implements PipraPayClientInterface
 
     private static function nullableString(mixed $value): ?string
     {
-        if ($value === null) {
+        if (! is_string($value) && ! is_int($value)) {
             return null;
         }
 

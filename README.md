@@ -114,6 +114,9 @@ positive amount. Decimal amount strings are preserved. Applications must still
 match the verified amount, currency, and metadata to their deposit and retain
 their transaction and row-lock safeguards.
 
+Currency codes contain 3–10 letters/digits, including custom codes such as USDT;
+verification normalizes their case and surrounding whitespace.
+
 Available status helpers:
 
 ```php
