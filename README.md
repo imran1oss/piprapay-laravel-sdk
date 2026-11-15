@@ -54,6 +54,11 @@ API requests do not follow redirects, so an API key cannot be forwarded to a
 redirect destination. Configure the final PipraPay API base URL; use HTTPS in
 production. A redirect is reported as a `PipraPayRequestException`.
 
+The base URL must use HTTP(S) and have no query string or fragment. Subdirectory
+installations such as `https://pay.example.com/panel` and local HTTP development
+URLs are supported. Return and webhook URLs, when supplied, must also use
+HTTP(S); empty optional callbacks remain supported by the current API contract.
+
 PipraPay requires the domains used by `return_url` and `webhook_url` to be active in its Domains settings.
 
 ## Create a direct gateway checkout
@@ -117,6 +122,15 @@ their transaction and row-lock safeguards.
 Currency codes contain 3–10 letters/digits, including custom codes such as USDT;
 verification normalizes their case and surrounding whitespace.
 
+Checkout input and configured default currencies use the same rule. Send money
+as an unsigned plain decimal string, for example `'500.00'`; its precision and
+formatting are preserved after trimming surrounding whitespace. Scientific
+notation strings such as `'5e2'`, signed strings such as `'+5'` or `'-0'`,
+non-finite values and non-positive checkout/completed amounts are rejected.
+Zero remains valid for a non-completed verification response. Finite PHP float
+inputs are expanded to plain decimal notation, but retain the limitations of
+floating-point input; decimal strings are preferred for financial values.
+
 Available status helpers:
 
 ```php
@@ -163,6 +177,13 @@ public function __construct(
 
 ## Error handling
 
+Invalid JSON payload values (including recursive metadata, invalid UTF-8, NAN,
+INF and resources) fail before a request is sent. JSON encoding/decoding failures
+produce typed SDK exceptions and retain the underlying `JsonException` as the
+previous exception. Decoding is independent of Laravel's global JSON flags and
+preserves large integer payment IDs as strings. Error HTTP responses retain
+their status even when their body is not valid JSON.
+
 ```php
 use Imran1oss\PipraPay\Exceptions\PipraPayException;
 use Imran1oss\PipraPay\Exceptions\PipraPayRequestException;
@@ -193,6 +214,26 @@ try {
 composer install
 composer test
 ```
+
+CI runs the five PHP/Laravel compatibility combinations plus two lowest allowed
+dependency combinations. PHP warnings and risky tests fail the build. Composer
+validates the package and audits production and development dependencies.
+
+Synthetic [API fixtures](tests/Fixtures/README.md) exercise checkout, payment
+statuses and API-verified webhooks. Integration tests cover package discovery,
+the facade/contract binding, config publication and cached configuration.
+Before release or broker integration, verify the deployed PipraPay revision and
+run an authorized staging payment smoke test; fixtures do not prove a live
+payment succeeded.
+
+### Upgrading existing callers
+
+- Use a base URL without a query or fragment, and HTTP(S) callbacks.
+- Replace scientific-notation amount strings with plain decimal strings.
+- Ensure currency codes have 3–10 letters/digits.
+- Direct `CheckoutResponse` construction now validates its payment ID and URL,
+  just like API responses; existing valid HTTP(S) checkout URLs remain supported.
+- Keep application-level payment matching and transaction/row-lock safeguards.
 
 ## License
 
